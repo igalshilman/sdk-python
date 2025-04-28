@@ -232,6 +232,8 @@ class SyncPoint:
         """Wait for the sync point."""
         if self.cond is None:
             self.cond = asyncio.Event()
+        else:
+            self.cond.clear()
         return self.cond.wait()
 
     async def arrive(self):
@@ -246,6 +248,7 @@ class Tasks:
 
     def __init__(self) -> None:
         self.tasks: set[asyncio.Future] = set()
+        self.any_canceled = False
 
     def add(self, task: asyncio.Future):
         """Add a task to the list."""
@@ -273,6 +276,11 @@ class Tasks:
         self.tasks.clear()
         for task in to_cancel:
             task.cancel()
+        try:
+            asyncio.gather(*to_cancel, return_exceptions=True)
+        except asyncio.CancelledError:
+            # ignore the cancelled error
+            pass
 
 # pylint: disable=R0902
 class ServerInvocationContext(ObjectContext):
@@ -432,6 +440,8 @@ class ServerInvocationContext(ObjectContext):
                 done, _ = await asyncio.wait([sync_task, read_task], return_when=asyncio.FIRST_COMPLETED)
                 if read_task in done:
                     _ = read_task.result() # propagate exception
+                if sync_task in done:
+                    _ = sync_task.result()
 
     def _create_fetch_result_coroutine(self, handle: int, serde: Serde[T] | None = None):
         """Create a coroutine that fetches a result from a notification handle."""
